@@ -1,0 +1,49 @@
+esphome:
+  name: keyword-spotter
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+external_components:
+  - source:
+      type: local
+      path: components
+    components: [tflite_mic]
+
+logger:
+api:
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+# PSRAM is effectively required for this model (~250KB peak activation
+# tensor + ~1MB flash for weights). Uncomment if your board has it and you
+# want to confirm ESPHome sees it:
+# psram:
+#   mode: octal   # or quad, depending on your board
+
+tflite_mic:
+  id: kws
+  i2s_bck_pin: GPIO26      # INMP441 SCK
+  i2s_ws_pin: GPIO25       # INMP441 WS / LRCL
+  i2s_data_pin: GPIO22     # INMP441 SD
+  i2s_port: 0
+  sample_rate: 16000
+  tensor_arena_size: 300kB     # start here, raise if AllocateTensors() fails in the boot log
+  feature_type: spectrogram    # matches trigger_model_int8.tflite (STFT magnitude, no mel/log)
+  frame_length: 255            # samples per STFT frame (~16ms @ 16kHz)
+  frame_step: 128              # hop between frames (~8ms @ 16kHz)
+  fft_length: 256
+  clip_duration_ms: 1000       # -> 124 frames x 129 bins, matching the model's [1,124,129,1] input
+  inference_interval_ms: 500   # run a new detection pass twice a second
+  mic_gain: 4.0
+
+binary_sensor:
+  - platform: tflite_mic
+    tflite_mic_id: kws
+    name: "Trigger Word Detected"
+    class_index: 0           # trigger_model_int8 has a single sigmoid output
+    threshold: 80%
+    min_trigger_interval: 1000ms
