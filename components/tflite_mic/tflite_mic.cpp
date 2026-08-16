@@ -1,6 +1,7 @@
 #include "tflite_mic.h"
 #include "binary_sensor_entity.h"
 #include "model_data.h"
+#include "model_data.cc"
 
 #include <cmath>
 #include <cstring>
