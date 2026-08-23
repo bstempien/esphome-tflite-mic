@@ -87,14 +87,39 @@ bool TFLiteMicComponent::init_model_() {
                 used_psram ? "PSRAM" : "internal DRAM");
 
   static tflite::MicroMutableOpResolver<kNumOps> resolver;
-  resolver.AddConv2D();
-  resolver.AddMaxPool2D();
-  resolver.AddShape();
-  resolver.AddStridedSlice();
-  resolver.AddPack();
-  resolver.AddReshape();
-  resolver.AddFullyConnected();
-  resolver.AddLogistic();
+  // Check each registration's own return status individually rather than
+  // assuming success -- TFLite Micro's internal error strings
+  // (MicroPrintf/DebugLog) are commonly compiled out entirely in
+  // size-optimized ESP-IDF builds (TF_LITE_STRIP_ERROR_STRINGS or
+  // equivalent), so if something fails deeper inside AllocateTensors() you
+  // may get nothing but a bare status code -- these checks give us a
+  // signal that doesn't depend on that string data being present at all.
+  // SHAPE and STRIDED_SLICE specifically have open Espressif tracker
+  // issues for this exact model pattern (github.com/espressif/esp-tflite-micro
+  // issues #99 / TFMIC-42 and #53 / TFMIC-8), so they're checked first.
+  bool ops_ok = true;
+  ops_ok &= resolver.AddShape() == kTfLiteOk;
+  if (!ops_ok) ESP_LOGE(TAG, "resolver.AddShape() failed to register");
+  ops_ok &= resolver.AddStridedSlice() == kTfLiteOk;
+  if (!ops_ok) ESP_LOGE(TAG, "resolver.AddStridedSlice() failed to register");
+  ops_ok &= resolver.AddPack() == kTfLiteOk;
+  if (!ops_ok) ESP_LOGE(TAG, "resolver.AddPack() failed to register");
+  ops_ok &= resolver.AddConv2D() == kTfLiteOk;
+  if (!ops_ok) ESP_LOGE(TAG, "resolver.AddConv2D() failed to register");
+  ops_ok &= resolver.AddMaxPool2D() == kTfLiteOk;
+  if (!ops_ok) ESP_LOGE(TAG, "resolver.AddMaxPool2D() failed to register");
+  ops_ok &= resolver.AddReshape() == kTfLiteOk;
+  if (!ops_ok) ESP_LOGE(TAG, "resolver.AddReshape() failed to register");
+  ops_ok &= resolver.AddFullyConnected() == kTfLiteOk;
+  if (!ops_ok) ESP_LOGE(TAG, "resolver.AddFullyConnected() failed to register");
+  ops_ok &= resolver.AddLogistic() == kTfLiteOk;
+  if (!ops_ok) ESP_LOGE(TAG, "resolver.AddLogistic() failed to register");
+  if (!ops_ok) {
+    ESP_LOGE(TAG, "One or more op registrations failed -- see above. This is very likely the SHAPE/PACK/"
+                  "STRIDED_SLICE incompatibility tracked upstream, not an arena-size problem. See the "
+                  "'If op registration fails' section of the README for next steps.");
+    return false;
+  }
 
   static tflite::MicroInterpreter static_interpreter(this->model_, resolver, this->tensor_arena_,
                                                        this->tensor_arena_size_);

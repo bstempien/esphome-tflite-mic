@@ -87,4 +87,4 @@ async def to_code(config):
     cg.add(var.set_inference_interval_ms(config[CONF_INFERENCE_INTERVAL_MS]))
     cg.add(var.set_mic_gain(config[CONF_MIC_GAIN]))
 
-    esp32.add_idf_component(name="espressif/esp-tflite-micro", ref="1.3.1")
+    esp32.add_idf_component(name="espressif/esp-tflite-micro", ref="1.3.4")

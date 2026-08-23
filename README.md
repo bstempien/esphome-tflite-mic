@@ -131,6 +131,60 @@ those unless you retrain. What you will likely want to tune:
    least `min_trigger_interval` so Home Assistant sees a clean pulse
    rather than flapping.
 
+## If op registration fails (SHAPE / STRIDED_SLICE / PACK)
+
+If the new per-op registration checks in `tflite_mic.cpp` log something like
+`resolver.AddShape() failed to register` (or `AddStridedSlice`/`AddPack`),
+you've hit a real, tracked limitation in Espressif's `esp-tflite-micro` port
+rather than a config problem:
+
+- [`Didn't find op for builtin opcode 'SHAPE'` — espressif/esp-tflite-micro#99 (TFMIC-42)](https://github.com/espressif/esp-tflite-micro/issues/99)
+- [`LoadProhibited` crash in `STRIDED_SLICE` during tensor allocation — espressif/esp-tflite-micro#53 (TFMIC-8)](https://github.com/espressif/esp-tflite-micro/issues/53)
+
+These three ops only exist in your model because TensorFlow's converter
+emits `SHAPE → STRIDED_SLICE → PACK → RESHAPE` for a Keras `Flatten` layer
+when the model's input was built with a **dynamic** batch dimension
+(`tf.keras.Input(shape=(124, 129, 1))`, batch left as `None`). The sequence
+just recomputes "batch size, then flattened size" at runtime — for your
+use case the batch size is always 1, so none of it is actually doing
+anything useful; it's an artifact of how the model was exported, not
+something you need.
+
+**No amount of arena size or PSRAM fixes this** — it's a structural
+incompatibility, not a memory shortfall, which is exactly why raising
+`tensor_arena_size` to 8MB had no effect.
+
+Two ways forward:
+
+1. **Try the version bump already in this update** (`esp-tflite-micro`
+   1.3.1 → 1.3.4). Espressif actively maintains this repo; it's possible
+   a version newer than the one referenced in the open issues above has
+   partially or fully fixed this. Rebuild and check whether the per-op
+   log lines now all succeed.
+2. **If it's still broken, fix it at the source (recommended, durable):**
+   rebuild the Keras model with a **fixed batch size** before converting,
+   so the converter never emits the dynamic ops in the first place:
+   ```python
+   # Instead of:
+   #   inputs = tf.keras.Input(shape=(124, 129, 1))
+   # use a fixed batch shape:
+   inputs = tf.keras.Input(batch_shape=(1, 124, 129, 1))
+   ```
+   Rebuild the rest of the model on top of that input, retrain (or just
+   reload existing trained weights into the new input spec if the rest of
+   the architecture is unchanged), and reconvert to `.tflite`. The
+   resulting graph should go straight from the last `MAX_POOL_2D` to a
+   plain constant-shape `RESHAPE` — no `SHAPE`/`STRIDED_SLICE`/`PACK` at
+   all, and one fewer thing to register in `tflite_mic.cpp`'s op resolver.
+   Re-run this project's `.tflite` parser (or Netron) on the new export to
+   confirm the op list shrank before flashing.
+
+If the per-op checks all pass but `AllocateTensors()` still fails, that
+rules out registration entirely and points at something failing inside a
+node's `Prepare()` call (a shape/type it doesn't accept) — share the new
+log output (which op registrations succeeded, and the bare status code)
+and we can narrow further from there.
+
 ## Known limitations / things to verify on real hardware
 
 - The on-device FFT/windowing is a direct reimplementation of
