@@ -56,22 +56,35 @@ bool TFLiteMicComponent::init_model_() {
     return false;
   }
 
+  ESP_LOGCONFIG(TAG, "  Free heap before arena alloc: internal=%u bytes, psram=%u bytes",
+                heap_caps_get_free_size(MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL),
+                heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+
   // This model's peak activation tensor (the first conv2d output) is
   // ~250KB by itself, so the arena needs real headroom. Prefer PSRAM if
   // the board has it; fall back to internal DRAM (likely to fail
   // AllocateTensors() on a non-PSRAM board unless tensor_arena_size is
   // trimmed way down, which isn't really possible for this model without
   // shrinking it).
+  bool used_psram = true;
   this->tensor_arena_ =
       static_cast<uint8_t *>(heap_caps_malloc(this->tensor_arena_size_, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
   if (this->tensor_arena_ == nullptr) {
-    ESP_LOGW(TAG, "No PSRAM available (or allocation failed) -- trying internal DRAM");
+    used_psram = false;
+    ESP_LOGW(TAG, "PSRAM allocation of %u bytes failed (missing `psram:` config, wrong mode, or not enough free "
+                  "PSRAM) -- trying internal DRAM",
+             this->tensor_arena_size_);
     this->tensor_arena_ = static_cast<uint8_t *>(heap_caps_malloc(this->tensor_arena_size_, MALLOC_CAP_8BIT));
   }
   if (this->tensor_arena_ == nullptr) {
-    ESP_LOGE(TAG, "Could not allocate %u byte tensor arena", this->tensor_arena_size_);
+    ESP_LOGE(TAG, "Could not allocate %u byte tensor arena from PSRAM or internal DRAM -- this is a plain "
+                  "malloc failure, not an AllocateTensors() sizing issue. Lower tensor_arena_size, confirm "
+                  "`psram:` is configured correctly for your board, and check the free-heap line logged above.",
+             this->tensor_arena_size_);
     return false;
   }
+  ESP_LOGCONFIG(TAG, "  Allocated %u byte tensor arena from %s", this->tensor_arena_size_,
+                used_psram ? "PSRAM" : "internal DRAM");
 
   static tflite::MicroMutableOpResolver<kNumOps> resolver;
   resolver.AddConv2D();
@@ -87,9 +100,22 @@ bool TFLiteMicComponent::init_model_() {
                                                        this->tensor_arena_size_);
   this->interpreter_ = &static_interpreter;
 
-  if (this->interpreter_->AllocateTensors() != kTfLiteOk) {
-    ESP_LOGE(TAG, "AllocateTensors() failed -- tensor_arena_size (%u bytes) is too small; try increasing it",
-             this->tensor_arena_size_);
+  TfLiteStatus alloc_status = this->interpreter_->AllocateTensors();
+  if (alloc_status != kTfLiteOk) {
+    // IMPORTANT: this does NOT necessarily mean the arena is too small.
+    // TFLite Micro returns the same generic kTfLiteError for a real size
+    // shortfall AND for structural problems (an op version it can't
+    // service, an op whose Prepare() rejects the tensor shapes/types it's
+    // given, etc). The actual reason is printed directly to the serial
+    // console by TFLM's own error reporter (MicroPrintf), NOT through this
+    // ESP_LOGE call -- scroll up in the serial log from this line to find
+    // it; that's the message that tells you whether to raise
+    // tensor_arena_size or fix something else entirely.
+    ESP_LOGE(TAG, "AllocateTensors() failed (status=%d). Look for TFLite Micro's own diagnostic line printed just "
+                  "above this one in the serial log -- it names the actual cause (size shortfall with exact byte "
+                  "counts, an unsupported op, a rejected tensor shape/type, etc). Don't assume this is purely an "
+                  "arena-size problem.",
+             alloc_status);
     return false;
   }
 

@@ -50,7 +50,7 @@ CONFIG_SCHEMA = cv.Schema(
         cv.GenerateID(): cv.declare_id(TFLiteMicComponent),
         cv.Required(CONF_I2S_BCK_PIN): cv.int_range(min=0, max=39),
         cv.Required(CONF_I2S_WS_PIN): cv.int_range(min=0, max=39),
-        cv.Required(CONF_I2S_DATA_PIN): cv.int_range(min=0, max=44),
+        cv.Required(CONF_I2S_DATA_PIN): cv.int_range(min=0, max=39),
         cv.Optional(CONF_I2S_PORT, default=0): cv.int_range(min=0, max=1),
         cv.Optional(CONF_SAMPLE_RATE, default=16000): cv.int_range(min=8000, max=48000),
         # This model's peak activation tensor alone is ~250KB; PSRAM strongly
