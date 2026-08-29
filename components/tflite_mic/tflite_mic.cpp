@@ -258,7 +258,7 @@ size_t TFLiteMicComponent::fill_ring_buffer_() {
 //    uint32_t sample32 = raw[i] >> 14;  // keep top ~18 bits, roughly 16-bit range
 //    float sample = static_cast<float>(sample32) * this->mic_gain_;
 //    sample = std::max(-32768.0f, std::min(32767.0f, sample));
-    uint16_t shortend = (uint16_t)(raw_buf[i] >> 16);
+    uint16_t shortend = (uint16_t)(raw[i] >> 16);
 
 //    this->ring_buffer_[this->ring_write_pos_] = static_cast<int16_t>(sample);
     this->ring_buffer_[this->ring_write_pos_] = (int16_t)__builtin_bswap16(shortend);
