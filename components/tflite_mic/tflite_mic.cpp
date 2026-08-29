@@ -264,6 +264,7 @@ size_t TFLiteMicComponent::fill_ring_buffer_() {
     this->ring_buffer_[this->ring_write_pos_] = (int16_t)__builtin_bswap16(shortend);
     this->ring_write_pos_ = (this->ring_write_pos_ + 1) % this->ring_capacity_;
   }
+  ESP_LOGD(TAG, "Ring position is %i",this->ring_write_pos_);
   return samples_read;
 }
 
