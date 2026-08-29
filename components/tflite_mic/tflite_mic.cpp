@@ -244,19 +244,24 @@ size_t TFLiteMicComponent::fill_ring_buffer_() {
   // 32-bit stereo-slot samples from the I2S peripheral; INMP441 left-justifies
   // 24 significant bits into the upper part of the 32-bit word.
   static constexpr size_t kReadChunk = 256;
-  int32_t raw[kReadChunk];
+  uint32_t raw[kReadChunk];
   size_t bytes_read = 0;
 
   esp_err_t err = i2s_read(this->i2s_port_, raw, sizeof(raw), &bytes_read, 0 /* don't block the ESPHome loop */);
-  if (err != ESP_OK || bytes_read == 0) return 0;
+  if (err != ESP_OK || bytes_read == 0) {
+    ESP_LOGW(TAG, "I2S read error: %s", esp_err_to_name(err));
+    return 0;
+  }
 
-  size_t samples_read = bytes_read / sizeof(int32_t);
+  size_t samples_read = bytes_read / sizeof(uint32_t);
   for (size_t i = 0; i < samples_read; i++) {
-    int32_t sample32 = raw[i] >> 14;  // keep top ~18 bits, roughly 16-bit range
-    float sample = static_cast<float>(sample32) * this->mic_gain_;
-    sample = std::max(-32768.0f, std::min(32767.0f, sample));
+//    uint32_t sample32 = raw[i] >> 14;  // keep top ~18 bits, roughly 16-bit range
+//    float sample = static_cast<float>(sample32) * this->mic_gain_;
+//    sample = std::max(-32768.0f, std::min(32767.0f, sample));
+    uint16_t shortend = (uint16_t)(raw_buf[i] >> 16);
 
-    this->ring_buffer_[this->ring_write_pos_] = static_cast<int16_t>(sample);
+//    this->ring_buffer_[this->ring_write_pos_] = static_cast<int16_t>(sample);
+    this->ring_buffer_[this->ring_write_pos_] = (int16_t)__builtin_bswap16(shortend);
     this->ring_write_pos_ = (this->ring_write_pos_ + 1) % this->ring_capacity_;
   }
   return samples_read;

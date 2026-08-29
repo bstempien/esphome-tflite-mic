@@ -1,0 +1,17 @@
+{
+    "configurations": [
+        {
+            "name": "Linux",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "${workspaceFolder}/../esp-idf/components/**"
+            ],
+            "defines": [],
+            "compilerPath": "/home/brian/.espressif/tools/esp-clang/esp-19.1.2_20250312/esp-clang/bin/clang",
+            "cStandard": "c17",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "linux-clang-x64"
+        }
+    ],
+    "version": 4
+}
