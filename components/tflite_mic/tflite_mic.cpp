@@ -426,6 +426,7 @@ void TFLiteMicComponent::extract_spectrogram_(int8_t *dst_int8, float *dst_float
     }
   }
 
+  ESP_LOGD(TAG, "Spectrogram produced %u values",out_idx)
   if (out_idx != max_out) {
     ESP_LOGW(TAG,
              "Spectrogram produced %u values but model input expects %u -- check frame_length/frame_step/"
