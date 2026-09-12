@@ -242,7 +242,14 @@ void TFLiteMicComponent::loop() {
 
 size_t TFLiteMicComponent::fill_ring_buffer_() {
   // 32-bit stereo-slot samples from the I2S peripheral; INMP441 left-justifies
-  // 24 significant bits into the upper part of the 32-bit word.
+  // 24 significant bits into the upper part of the 32-bit word. The top 16
+  // bits of that 32-bit word are already a correctly-ordered 16-bit
+  // two's-complement PCM sample -- no byte swap needed on top of the shift.
+  // (If your board's I2S peripheral genuinely delivers byte-swapped 32-bit
+  // words, swap the FULL word with __builtin_bswap32(raw[i]) BEFORE
+  // shifting, not the already-extracted 16-bit result -- swapping the
+  // 16-bit result's bytes scrambles a good sample instead of fixing a bad
+  // one. Use the min/max/RMS log line below to check which case you're in.)
   static constexpr size_t kReadChunk = 256;
   uint32_t raw[kReadChunk];
   size_t bytes_read = 0;
@@ -254,16 +261,45 @@ size_t TFLiteMicComponent::fill_ring_buffer_() {
   }
 
   size_t samples_read = bytes_read / sizeof(uint32_t);
-  for (size_t i = 0; i < samples_read; i++) {
-//    uint32_t sample32 = raw[i] >> 14;  // keep top ~18 bits, roughly 16-bit range
-//    float sample = static_cast<float>(sample32) * this->mic_gain_;
-//    sample = std::max(-32768.0f, std::min(32767.0f, sample));
-    uint16_t shortend = (uint16_t)(raw[i] >> 16);
 
-//    this->ring_buffer_[this->ring_write_pos_] = static_cast<int16_t>(sample);
-    this->ring_buffer_[this->ring_write_pos_] = (int16_t)__builtin_bswap16(shortend);
+  // --- temporary diagnostic: confirm the extracted waveform actually looks
+  // like audio (varies with sound) rather than noise/silence/clipping.
+  // Say the trigger word out loud while watching this line, then remove it
+  // once you've confirmed the pipeline. Gated to run every ~1s so it
+  // doesn't flood the log at 16kHz.
+  static int16_t dbg_min = 32767, dbg_max = -32768;
+  static int64_t dbg_sum_sq = 0;
+  static size_t dbg_count = 0;
+  static uint32_t dbg_last_log = 0;
+
+  for (size_t i = 0; i < samples_read; i++) {
+    int16_t sample16 = static_cast<int16_t>(raw[i] >> 16);
+    float sample = static_cast<float>(sample16) * this->mic_gain_;
+    sample = std::max(-32768.0f, std::min(32767.0f, sample));
+    int16_t sample_final = static_cast<int16_t>(sample);
+
+    this->ring_buffer_[this->ring_write_pos_] = sample_final;
     this->ring_write_pos_ = (this->ring_write_pos_ + 1) % this->ring_capacity_;
+
+    dbg_min = std::min(dbg_min, sample_final);
+    dbg_max = std::max(dbg_max, sample_final);
+    dbg_sum_sq += static_cast<int64_t>(sample_final) * sample_final;
+    dbg_count++;
   }
+
+  uint32_t now = millis();
+  if (now - dbg_last_log >= 1000 && dbg_count > 0) {
+    float rms = std::sqrt(static_cast<float>(dbg_sum_sq) / dbg_count);
+    ESP_LOGD(TAG, "audio check: min=%d max=%d rms=%.1f (quiet room should be a small, non-zero, non-flat "
+                  "range; should swing noticeably wider when you speak/clap near the mic)",
+             dbg_min, dbg_max, rms);
+    dbg_min = 32767;
+    dbg_max = -32768;
+    dbg_sum_sq = 0;
+    dbg_count = 0;
+    dbg_last_log = now;
+  }
+
   return samples_read;
 }
 
@@ -426,7 +462,6 @@ void TFLiteMicComponent::extract_spectrogram_(int8_t *dst_int8, float *dst_float
     }
   }
 
-  ESP_LOGD(TAG, "Spectrogram produced %u values",out_idx);
   if (out_idx != max_out) {
     ESP_LOGW(TAG,
              "Spectrogram produced %u values but model input expects %u -- check frame_length/frame_step/"
