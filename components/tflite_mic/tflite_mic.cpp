@@ -181,38 +181,53 @@ bool TFLiteMicComponent::init_feature_buffers_() {
 }
 
 bool TFLiteMicComponent::init_i2s_() {
-  i2s_config_t i2s_config = {};
-  i2s_config.mode = static_cast<i2s_mode_t>(I2S_MODE_MASTER | I2S_MODE_RX);
-  i2s_config.sample_rate = this->sample_rate_;
-  i2s_config.bits_per_sample = I2S_BITS_PER_SAMPLE_32BIT;  // INMP441 outputs 24-bit in a 32-bit frame
-  i2s_config.channel_format = I2S_CHANNEL_FMT_ONLY_LEFT;   // tie L/R pin low on the mic -> left channel
-  i2s_config.communication_format = static_cast<i2s_comm_format_t>(I2S_COMM_FORMAT_STAND_I2S);
-  i2s_config.intr_alloc_flags = ESP_INTR_FLAG_LEVEL1;
-  i2s_config.dma_buf_count = 8;
-  i2s_config.dma_buf_len = 256;
-  i2s_config.use_apll = false;
-  i2s_config.tx_desc_auto_clear = false;
-  i2s_config.fixed_mclk = 0;
-
-  esp_err_t err = i2s_driver_install(this->i2s_port_, &i2s_config, 0, nullptr);
+  i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(this->i2s_port_, I2S_ROLE_MASTER);
+  chan_cfg.dma_desc_num = 8;    // replaces legacy dma_buf_count
+  chan_cfg.dma_frame_num = 256; // replaces legacy dma_buf_len
+ 
+  esp_err_t err = i2s_new_channel(&chan_cfg, nullptr /* no TX needed */, &this->rx_handle_);
   if (err != ESP_OK) {
-    ESP_LOGE(TAG, "i2s_driver_install failed: %d", err);
+    ESP_LOGE(TAG, "i2s_new_channel failed: %s", esp_err_to_name(err));
     return false;
   }
-
-  i2s_pin_config_t pin_config = {};
-  pin_config.bck_io_num = this->bck_pin_;
-  pin_config.ws_io_num = this->ws_pin_;
-  pin_config.data_out_num = I2S_PIN_NO_CHANGE;
-  pin_config.data_in_num = this->data_pin_;
-
-  err = i2s_set_pin(this->i2s_port_, &pin_config);
+ 
+  i2s_std_config_t std_cfg = {
+      .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(this->sample_rate_),
+      // INMP441 outputs 24 significant bits in a 32-bit slot; Philips
+      // format matches the legacy driver's I2S_COMM_FORMAT_STAND_I2S.
+      // Mono mode defaults slot_mask to I2S_STD_SLOT_LEFT already, which
+      // matches tying the mic's L/R pin to GND (set explicitly below too,
+      // just to keep the wiring assumption obvious at a glance).
+      .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_32BIT, I2S_SLOT_MODE_MONO),
+      .gpio_cfg =
+          {
+              .mclk = I2S_GPIO_UNUSED,
+              .bclk = static_cast<gpio_num_t>(this->bck_pin_),
+              .ws = static_cast<gpio_num_t>(this->ws_pin_),
+              .dout = I2S_GPIO_UNUSED,
+              .din = static_cast<gpio_num_t>(this->data_pin_),
+              .invert_flags =
+                  {
+                      .mclk_inv = false,
+                      .bclk_inv = false,
+                      .ws_inv = false,
+                  },
+          },
+  };
+  std_cfg.slot_cfg.slot_mask = I2S_STD_SLOT_LEFT;
+ 
+  err = i2s_channel_init_std_mode(this->rx_handle_, &std_cfg);
   if (err != ESP_OK) {
-    ESP_LOGE(TAG, "i2s_set_pin failed: %d", err);
+    ESP_LOGE(TAG, "i2s_channel_init_std_mode failed: %s", esp_err_to_name(err));
     return false;
   }
-
-  i2s_zero_dma_buffer(this->i2s_port_);
+ 
+  err = i2s_channel_enable(this->rx_handle_);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "i2s_channel_enable failed: %s", esp_err_to_name(err));
+    return false;
+  }
+ 
   return true;
 }
 
@@ -254,7 +269,7 @@ size_t TFLiteMicComponent::fill_ring_buffer_() {
   uint32_t raw[kReadChunk];
   size_t bytes_read = 0;
 
-  esp_err_t err = i2s_read(this->i2s_port_, raw, sizeof(raw), &bytes_read, 0 /* don't block the ESPHome loop */);
+  esp_err_t err = i2s_channel_read(this->rx_handle, raw, sizeof(raw), &bytes_read, 0 /* don't block the ESPHome loop */);
   if (err != ESP_OK || bytes_read == 0) {
     ESP_LOGW(TAG, "I2S read error: %s", esp_err_to_name(err));
     return 0;
@@ -278,7 +293,7 @@ size_t TFLiteMicComponent::fill_ring_buffer_() {
     sample = std::max(-32768.0f, std::min(32767.0f, sample));
     int16_t sample_final = static_cast<int16_t>(sample);
 
-    this->ring_buffer_[this->ring_write_pos_] = (int16_t)__builtin_bswap16(sample_final);
+    this->ring_buffer_[this->ring_write_pos_] = sample_final;
     this->ring_write_pos_ = (this->ring_write_pos_ + 1) % this->ring_capacity_;
 
     dbg_min = std::min(dbg_min, sample_final);

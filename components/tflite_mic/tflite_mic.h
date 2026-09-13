@@ -6,7 +6,8 @@
 #include "esphome/core/component.h"
 #include "esphome/core/log.h"
 
-#include "driver/i2s.h"
+#include "driver/i2s_std.h"
+#include "driver/i2s_common.h"
 
 #include "tensorflow/lite/micro/micro_interpreter.h"
 #include "tensorflow/lite/micro/micro_mutable_op_resolver.h"
@@ -16,12 +17,6 @@
 namespace esphome {
 namespace tflite_mic {
 
-// FEATURE_SPECTROGRAM matches trigger_model_int8.tflite: a raw (linear,
-// non-mel) STFT magnitude spectrogram, i.e. exactly
-//   tf.abs(tf.signal.stft(waveform, frame_length=255, frame_step=128))
-// which is what TensorFlow's official "Simple audio recognition" tutorial
-// produces. FEATURE_RAW is kept as an option for other models that take a
-// raw waveform directly.
 enum FeatureType : uint8_t {
   FEATURE_RAW = 0,
   FEATURE_SPECTROGRAM = 1,
@@ -72,6 +67,7 @@ class TFLiteMicComponent : public Component {
   uint8_t ws_pin_{0};
   uint8_t data_pin_{0};
   i2s_port_t i2s_port_{I2S_NUM_0};
+  i2s_chan_handle_t rx_handle_{nullptr};  // new i2s_std.h driver handle (replaces the port-based legacy API)
   uint32_t sample_rate_{16000};
   float mic_gain_{1.0f};
 
