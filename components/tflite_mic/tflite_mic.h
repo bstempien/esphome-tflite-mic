@@ -73,7 +73,7 @@ class TFLiteMicComponent : public Component {
 
   // ---- feature extraction config ----
   FeatureType feature_type_{FEATURE_SPECTROGRAM};
-  uint32_t frame_length_{255};   // samples per STFT frame (~16 ms @ 16kHz)
+  uint32_t frame_length_{256};   // samples per STFT frame (~16 ms @ 16kHz)
   uint32_t frame_step_{128};     // hop between frames (~8 ms @ 16kHz)
   uint32_t fft_length_{256};     // FFT size frame is zero-padded to
   uint32_t clip_duration_ms_{1000};
