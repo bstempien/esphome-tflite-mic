@@ -265,7 +265,7 @@ size_t TFLiteMicComponent::fill_ring_buffer_() {
   // shifting, not the already-extracted 16-bit result -- swapping the
   // 16-bit result's bytes scrambles a good sample instead of fixing a bad
   // one. Use the min/max/RMS log line below to check which case you're in.)
-  static constexpr size_t kReadChunk = 256;
+  static constexpr size_t kReadChunk = 1024;
   uint32_t raw[kReadChunk];
   size_t bytes_read = 0;
 
