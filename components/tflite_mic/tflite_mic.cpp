@@ -269,7 +269,7 @@ size_t TFLiteMicComponent::fill_ring_buffer_() {
   uint32_t raw[kReadChunk];
   size_t bytes_read = 0;
 
-  esp_err_t err = i2s_channel_read(this->rx_handle_, raw, sizeof(raw), &bytes_read, 10 /* don't block the ESPHome loop */);
+  esp_err_t err = i2s_channel_read(this->rx_handle_, raw, sizeof(raw), &bytes_read, 100 /* don't block the ESPHome loop */);
   if (err != ESP_OK || bytes_read == 0) {
     ESP_LOGW(TAG, "I2S read error: %s", esp_err_to_name(err));
     return 0;
