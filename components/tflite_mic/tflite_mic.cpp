@@ -289,8 +289,8 @@ size_t TFLiteMicComponent::fill_ring_buffer_() {
 
   for (size_t i = 0; i < samples_read; i++) {
     int16_t sample16 = __builtin_bswap16(static_cast<int16_t>(raw[i] >> 16));
-    float sample = static_cast<float>(sample16) * this->mic_gain_;
-    sample = std::max(-32768.0f, std::min(32767.0f, sample));
+ //   float sample = static_cast<float>(sample16) * this->mic_gain_;
+ //   sample = std::max(-32768.0f, std::min(32767.0f, sample));
     int16_t sample_final = static_cast<int16_t>(sample);
 
     this->ring_buffer_[this->ring_write_pos_] = sample_final;
